@@ -16,6 +16,7 @@ interface ExtendedProduct extends Product {
   zariType?: string;
   weave?: string;
   work?: string;
+  images?: string[];
 }
 
 function getProductColor(name: string, description: string): string {
@@ -82,6 +83,7 @@ export default function ProductDetails() {
       zariType: rp.zariType,
       weave: rp.weave,
       work: rp.work,
+      images: rp.images,
     }));
   }, [remoteProducts]);
 
@@ -90,6 +92,14 @@ export default function ProductDetails() {
   const product = useMemo(() => {
     return allProducts.find((p) => p.id === id) as ExtendedProduct | undefined;
   }, [allProducts, id]);
+
+  const [activeImage, setActiveImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (product) {
+      setActiveImage(product.image);
+    }
+  }, [product]);
 
   const relatedProducts = useMemo(() => {
     if (!product) return [];
@@ -211,16 +221,40 @@ export default function ProductDetails() {
         {/* Product Spotlight Grid */}
         <div className="grid md:grid-cols-2 gap-8 lg:gap-16 items-start mb-20">
           
-          {/* Left Column: Product Image (3:4 aspect ratio) */}
-          <div className="relative aspect-[3/4] w-full rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
-            <img
-              src={product.image}
-              alt={product.name}
-              className="w-full h-full object-cover transition-transform duration-500 hover:scale-102"
-            />
-            {wishlist.has(product.id) && (
-              <div className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm rounded-full p-2.5 shadow-sm">
-                <Heart className="w-4 h-4 fill-red-500 stroke-red-500" />
+          {/* Left Column: Product Image (3:4 aspect ratio) and Thumbnails */}
+          <div className="flex flex-col gap-4 w-full">
+            <div className="relative aspect-[3/4] w-full rounded-xl overflow-hidden shadow-sm" style={{ border: '1px solid var(--color-border)' }}>
+              <img
+                src={activeImage || product.image}
+                alt={product.name}
+                className="w-full h-full object-cover transition-transform duration-500 hover:scale-102"
+              />
+              {wishlist.has(product.id) && (
+                <div className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm rounded-full p-2.5 shadow-sm">
+                  <Heart className="w-4 h-4 fill-red-500 stroke-red-500" />
+                </div>
+              )}
+            </div>
+
+            {/* Thumbnails list */}
+            {product.images && product.images.length > 1 && (
+              <div className="flex gap-2.5 overflow-x-auto py-1 scrollbar-thin">
+                {product.images.map((imgUrl, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveImage(imgUrl)}
+                    className={`relative w-20 aspect-[3/4] rounded-md overflow-hidden flex-shrink-0 border transition-all duration-200 ${
+                      activeImage === imgUrl ? 'ring-2 ring-accent scale-[0.98]' : 'hover:opacity-80'
+                    }`}
+                    style={{
+                      borderColor: activeImage === imgUrl ? 'var(--color-accent)' : 'var(--color-border)',
+                      // @ts-ignore
+                      '--tw-ring-color': 'var(--color-accent)',
+                    }}
+                  >
+                    <img src={imgUrl} alt={`${product.name} view ${idx + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
               </div>
             )}
           </div>
