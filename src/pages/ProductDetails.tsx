@@ -149,15 +149,7 @@ export default function ProductDetails() {
           });
         } catch (_) {}
 
-        await supabase.from('boutique_orders').insert({
-          tenant_id: storefront.id,
-          customer_name: customerName.trim(),
-          customer_phone: cleanBuyerPhone,
-          total_amount: product.price,
-          status: 'Inquiry on WhatsApp',
-          notes: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
-          items: [{ title: product.title, sku: product.sku, price: product.price }],
-        });
+
       }
 
       // 2. Open WhatsApp with prefilled message

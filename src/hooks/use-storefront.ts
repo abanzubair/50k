@@ -88,7 +88,23 @@ export function useStorefront(): UseStorefrontReturn {
         return;
       }
 
-      setStorefront(tenant);
+      let config: any = {};
+      if (tenant.about_text) {
+        try {
+          const parsed = JSON.parse(tenant.about_text);
+          if (typeof parsed === 'object' && parsed !== null) {
+            config = parsed;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      setStorefront({
+        ...tenant,
+        hero_banner_url: tenant.banner_url || tenant.hero_banner_url,
+        config,
+      });
 
       // Fetch products for this tenant
       const { data: prods, error: prodErr } = await supabase

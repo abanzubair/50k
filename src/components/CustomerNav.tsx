@@ -55,10 +55,37 @@ export default function CustomerNav() {
     }
   };
 
+  const announcement = storefront?.config?.announcement;
+  const customLinks = storefront?.config?.nav_links?.filter((l) => l.is_active);
+  const linksToRender = (customLinks && customLinks.length > 0)
+    ? customLinks.map((l) => ({ label: l.label.toUpperCase(), href: l.url }))
+    : navLinks;
+
   return (
     <>
+      {/* Top Announcement Bar */}
+      {announcement?.enabled && announcement.text && (
+        <div
+          className="fixed top-0 left-0 right-0 z-[101] text-xs font-medium tracking-wide py-1.5 px-4 text-center truncate shadow-sm transition-all"
+          style={{
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-bg)',
+          }}
+        >
+          {announcement.link ? (
+            <a href={announcement.link} className="hover:underline">
+              {announcement.text}
+            </a>
+          ) : (
+            <span>{announcement.text}</span>
+          )}
+        </div>
+      )}
+
       <nav
-        className="fixed top-0 left-0 right-0 h-20 flex items-center justify-between px-5 md:px-16 z-[100] transition-all duration-300"
+        className={`fixed left-0 right-0 h-20 flex items-center justify-between px-5 md:px-16 z-[100] transition-all duration-300 ${
+          announcement?.enabled && announcement.text ? 'top-7' : 'top-0'
+        }`}
         style={{
           backgroundColor: scrolled ? 'rgba(249, 244, 240, 0.95)' : 'rgba(249, 244, 240, 0.85)',
           backdropFilter: 'blur(12px)',
@@ -81,7 +108,7 @@ export default function CustomerNav() {
 
         {/* Center Nav Links - Desktop */}
         <div className="hidden md:flex items-center gap-8">
-          {navLinks.map((link) => (
+          {linksToRender.map((link) => (
             <a
               key={link.label}
               href={link.href}
@@ -150,7 +177,7 @@ export default function CustomerNav() {
           </button>
         </div>
         <div className="flex flex-col">
-          {navLinks.map((link) => (
+          {linksToRender.map((link) => (
             <a
               key={link.label}
               href={link.href}

@@ -103,15 +103,7 @@ export default function Sarees() {
           });
         } catch (_) {}
 
-        await supabase.from('boutique_orders').insert({
-          tenant_id: storefront.id,
-          customer_name: inquiryName.trim(),
-          customer_phone: cleanBuyerPhone,
-          total_amount: selectedProduct.price,
-          status: 'Inquiry on WhatsApp',
-          notes: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
-          items: [{ title: selectedProduct.title, sku: selectedProduct.sku, price: selectedProduct.price }],
-        });
+
       }
 
       // 2. Open WhatsApp
