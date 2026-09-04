@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from 'react';
+import { useStorefrontContext } from '@/lib/StorefrontContext';
 
 export default function About() {
+  const { storeName, storefront } = useStorefrontContext();
   const [isVisible, setIsVisible] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
 
@@ -33,49 +35,45 @@ export default function About() {
           }`}
         >
           <p
-            className="font-body font-medium text-[11px] tracking-[0.15em] uppercase mb-4"
+            className="font-body font-bold text-xs tracking-[0.2em] uppercase mb-3"
             style={{ color: 'var(--color-accent)' }}
           >
-            OUR STORY
+            OUR HERITAGE
           </p>
-          <h2 className="font-display font-semibold text-h2 mb-8" style={{ color: 'var(--color-text)' }}>
-            Weaving <em style={{ color: 'var(--color-accent)' }}>Tradition</em> Into Every Thread
+          <h2 className="font-display font-semibold text-3xl sm:text-4xl mb-6" style={{ color: 'var(--color-text)' }}>
+            Weaving <em className="italic font-normal" style={{ color: 'var(--color-accent)' }}>Tradition</em> Into Every Thread
           </h2>
-          <div className="space-y-5">
-            <p className="font-body font-light text-base leading-relaxed" style={{ color: 'var(--color-text)' }}>
-              Tavishi Sarees was born from a deep love for India's rich textile heritage. Founded in 2015, we set out to bring the finest handwoven sarees from master artisans across India to discerning customers worldwide.
+          <div className="space-y-4 font-body text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+            <p>
+              {storeName} was born from a deep reverence for India's historic textile mastery. We curate authentic handwoven and master-crafted Banarasi sarees directly from Varanasi's premier weaver guilds to discerning patrons across the world.
             </p>
-            <p className="font-body font-light text-base leading-relaxed" style={{ color: 'var(--color-text)' }}>
-              Every saree in our collection is carefully selected — from the lustrous Banarasi silks of Varanasi to the vibrant Kanjeevarams of Tamil Nadu, the breezy linens of Bengal to the intricate cotton weaves of Gujarat.
+            <p>
+              Every saree in our collection is an heirloom — woven with pure zari threads, rich silk textures, and patterns preserved across generations of master artisans.
             </p>
-            <p className="font-body font-light text-base leading-relaxed" style={{ color: 'var(--color-text)' }}>
-              We believe a saree is more than just clothing — it's a canvas of culture, a drape of dreams, a six-yard story passed down through generations.
+            <p>
+              {storefront?.tagline || 'Experience the regal splendor of authentic Banarasi craftsmanship, certified and tailored for your most celebrated occasions.'}
             </p>
           </div>
-          <p
-            className="font-display italic text-lg mt-8"
-            style={{ color: 'var(--color-accent)' }}
-          >
-            — Demo
-          </p>
         </div>
 
-        {/* Right Column - Image + Stats */}
+        {/* Right Column - Image with Frame */}
         <div
-          className={`relative transition-all duration-800 ${
-            isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+          className={`relative transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-10'
           }`}
-          style={{ transitionDelay: '0.2s' }}
         >
-          <div className="rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
-            <img
-              src="/images/about-workshop.jpg"
-              alt="Artisan weaving saree"
-              className="w-full h-full object-cover"
-            />
+          <div className="relative mx-auto max-w-md">
+            <div
+              className="aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl border"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <img
+                src="/images/hero-saree.jpg"
+                alt="Weaving heritage"
+                className="w-full h-full object-cover"
+              />
+            </div>
           </div>
-
-
         </div>
       </div>
     </section>

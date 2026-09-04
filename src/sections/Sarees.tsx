@@ -1,22 +1,24 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { Heart, Eye, X, Loader2 } from 'lucide-react';
-import { productStore } from '@/lib/store';
+import { Heart, Eye, X, MessageCircle, Loader2, Sparkles } from 'lucide-react';
 import { useStorefrontContext } from '@/lib/StorefrontContext';
-import type { Product } from '@/types';
+import { supabase } from '@/lib/supabase';
+import type { StorefrontProduct } from '@/types/storefront';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
-const LOCAL_FILTER_CATEGORIES = ['All', 'Banarasi Silk', 'Kanjeevaram', 'Linen', 'Cotton', 'Designer', 'Festive'];
-
 export default function Sarees() {
-  const { remoteProducts, loading: storefrontLoading, storefront } = useStorefrontContext();
+  const { remoteProducts, loading: storefrontLoading, storefront, storeName } = useStorefrontContext();
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState('All');
   const [visibleCount, setVisibleCount] = useState(8);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<StorefrontProduct | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const sectionRef = useRef<HTMLElement>(null);
+
+  // Quick inquiry state
+  const [inquiryName, setInquiryName] = useState('');
+  const [submittingInquiry, setSubmittingInquiry] = useState(false);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -32,48 +34,30 @@ export default function Sarees() {
     return () => observer.disconnect();
   }, []);
 
-  // Map remote products (from Weave365 API) into the local Product shape
-  const mappedRemoteProducts: Product[] = useMemo(() => {
-    if (!remoteProducts || remoteProducts.length === 0) return [];
-    return remoteProducts.map((rp) => ({
-      id: String(rp.id),
-      name: rp.title,
-      description: rp.description,
-      price: rp.price,
-      image: rp.image,
-      category: rp.fabric || 'Uncategorized',
-      material: rp.fabric || '',
-      stock: 10,
-      status: 'active' as const,
-      sku: `WV-${rp.id}`,
-      createdAt: new Date().toISOString().split('T')[0],
-    }));
+  // Derive categories dynamically from boutique sarees
+  const filterCategories = useMemo(() => {
+    if (!remoteProducts || remoteProducts.length === 0) return ['All'];
+    const cats = [...new Set(remoteProducts.map((p) => p.fabric || p.category || 'Saree'))];
+    return ['All', ...cats];
   }, [remoteProducts]);
 
-  // Decide which product source to use
-  const hasRemoteProducts = mappedRemoteProducts.length > 0;
-  const allProducts = hasRemoteProducts ? mappedRemoteProducts : productStore.getAll();
+  const filteredProducts = useMemo(() => {
+    if (!remoteProducts) return [];
+    if (activeFilter === 'All') return remoteProducts;
+    return remoteProducts.filter(
+      (p) => (p.fabric || p.category || 'Saree') === activeFilter
+    );
+  }, [remoteProducts, activeFilter]);
 
-  // Derive filter categories dynamically from remote products, or use local defaults
-  const filterCategories = useMemo(() => {
-    if (hasRemoteProducts) {
-      const cats = [...new Set(mappedRemoteProducts.map((p) => p.category))];
-      return ['All', ...cats];
-    }
-    return LOCAL_FILTER_CATEGORIES;
-  }, [hasRemoteProducts, mappedRemoteProducts]);
+  const visibleProducts = filteredProducts.slice(0, visibleCount);
 
-  const products = activeFilter === 'All'
-    ? allProducts
-    : allProducts.filter((p) => p.category === activeFilter);
-  const visibleProducts = products.slice(0, visibleCount);
-
-  const toggleWishlist = (id: string, e: React.MouseEvent) => {
+  const toggleWishlist = (id: string | number, e: React.MouseEvent) => {
     e.stopPropagation();
+    const strId = String(id);
     setWishlist((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(strId)) next.delete(strId);
+      else next.add(strId);
       return next;
     });
   };
@@ -86,212 +70,291 @@ export default function Sarees() {
     }).format(price);
   };
 
+  const handleQuickInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct || !inquiryName.trim()) return;
+
+    setSubmittingInquiry(true);
+    try {
+      // 1. Insert lead into boutique_orders on Secondary DB
+      if (storefront?.id) {
+        await supabase.from('boutique_orders').insert({
+          tenant_id: storefront.id,
+          customer_name: inquiryName.trim(),
+          customer_phone: '',
+          total_amount: selectedProduct.price,
+          status: 'new',
+          notes: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title})`,
+        });
+      }
+
+      // 2. Open WhatsApp
+      const whatsapp = storefront?.whatsapp || '919919101369';
+      const cleanPhone = whatsapp.replace(/[^0-9]/g, '');
+      const msg = `Hi ${storeName}, I would like to order/inquire about this saree:\n\n*${selectedProduct.title}*\nSKU: ${selectedProduct.sku}\nPrice: ${formatPrice(selectedProduct.price)}\n\nMy Name: ${inquiryName.trim()}`;
+      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      
+      setSelectedProduct(null);
+      setInquiryName('');
+    } catch (err) {
+      console.error('Error submitting inquiry:', err);
+    } finally {
+      setSubmittingInquiry(false);
+    }
+  };
+
   return (
-    <section
-      ref={sectionRef}
-      id="sarees"
-      className="w-full py-24 md:py-32 px-5 md:px-16"
-      style={{ backgroundColor: 'var(--color-bg)' }}
-    >
+    <section ref={sectionRef} id="sarees" className="w-full py-20 px-5 md:px-16" style={{ backgroundColor: 'var(--color-bg)' }}>
       {/* Section Header */}
-      <div className={`text-center mb-12 transition-all duration-600 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-        <h2 className="font-display font-semibold text-h1" style={{ color: 'var(--color-text)' }}>
-          Our <em style={{ color: 'var(--color-accent)' }}>Collection</em>
+      <div className="text-center max-w-2xl mx-auto mb-12">
+        <p className="font-body font-bold text-xs tracking-[0.2em] uppercase mb-2" style={{ color: 'var(--color-accent)' }}>
+          Curated Pure Silk Collection
+        </p>
+        <h2 className="font-display font-semibold text-3xl sm:text-4xl" style={{ color: 'var(--color-text)' }}>
+          Handwoven <em className="font-normal italic" style={{ color: 'var(--color-accent)' }}>Artistry</em>
         </h2>
-        <p className="font-body font-light text-base mt-4" style={{ color: 'var(--color-muted)' }}>
-          {hasRemoteProducts
-            ? `Browse ${storefront?.store_name || 'our'} handpicked sarees`
-            : 'Browse our handpicked sarees across traditional and contemporary styles'}
+        <p className="font-body text-sm mt-3 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+          Each saree is an authentic Banarasi creation woven with pure silk yarns, intricate zari borders, and timeless craftsmanship.
         </p>
       </div>
 
-      {/* Loading State */}
-      {storefrontLoading && (
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--color-accent)' }} />
-          <p className="font-body text-sm" style={{ color: 'var(--color-muted)' }}>
-            Curating collection...
-          </p>
+      {/* Filter Tabs */}
+      {filterCategories.length > 1 && (
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-12">
+          {filterCategories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => {
+                setActiveFilter(cat);
+                setVisibleCount(8);
+              }}
+              className={`font-body text-xs font-semibold tracking-wider px-5 py-2.5 rounded-full transition-all duration-200 ${
+                activeFilter === cat
+                  ? 'shadow-md scale-105'
+                  : 'hover:opacity-80'
+              }`}
+              style={{
+                backgroundColor: activeFilter === cat ? 'var(--color-accent)' : 'var(--color-bg-alt)',
+                color: activeFilter === cat ? 'var(--color-bg)' : 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       )}
 
-      {!storefrontLoading && (
-        <>
-          {/* Filter Bar */}
-          <div className={`flex flex-wrap justify-center gap-3 mb-12 transition-all duration-600 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`} style={{ transitionDelay: '0.15s' }}>
-            {filterCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => {
-                  setActiveFilter(cat);
-                  setVisibleCount(8);
-                }}
-                className="font-body text-[13px] px-5 py-2 rounded-pill transition-all duration-200"
-                style={{
-                  backgroundColor: activeFilter === cat ? 'var(--color-accent)' : 'transparent',
-                  color: activeFilter === cat ? 'var(--color-bg)' : 'var(--color-text)',
-                  border: `1px solid ${activeFilter === cat ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                }}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+      {/* Loading State */}
+      {storefrontLoading && (
+        <div className="py-20 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--color-accent)' }} />
+          <p className="font-body text-xs font-medium text-slate-500">Loading exquisite weaves...</p>
+        </div>
+      )}
 
-          {/* Product Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8">
-            {visibleProducts.map((product, index) => (
-              <div
-                key={product.id}
-                className={`group cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-                }`}
-                style={{ transitionDelay: `${0.2 + index * 0.06}s` }}
-                onClick={() => navigate(`/product/${product.id}`)}
-              >
+      {/* Empty State */}
+      {!storefrontLoading && remoteProducts.length === 0 && (
+        <div className="py-20 text-center max-w-md mx-auto rounded-3xl p-8 border" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg-alt)' }}>
+          <Sparkles className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--color-accent)' }} />
+          <h3 className="font-display font-bold text-xl" style={{ color: 'var(--color-text)' }}>
+            Catalog Updating
+          </h3>
+          <p className="font-body text-xs text-slate-500 mt-2 mb-6 leading-relaxed">
+            New authentic Banarasi sarees are currently being cataloged for {storeName}. Check back shortly or contact us directly on WhatsApp.
+          </p>
+          {storefront?.whatsapp && (
+            <a
+              href={`https://wa.me/${storefront.whatsapp.replace(/[^0-9]/g, '')}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-xs font-bold tracking-wider uppercase text-white shadow-lg"
+              style={{ backgroundColor: 'var(--color-accent)' }}
+            >
+              <MessageCircle className="w-4 h-4 fill-current" />
+              Chat on WhatsApp
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Product Grid */}
+      {!storefrontLoading && visibleProducts.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
+            {visibleProducts.map((product, index) => {
+              const strId = String(product.id);
+              const isWishlisted = wishlist.has(strId);
+
+              return (
                 <div
-                  className="relative overflow-hidden rounded-lg mb-3"
-                  style={{ aspectRatio: '3/4' }}
+                  key={product.id}
+                  className={`group cursor-pointer transition-all duration-500 ${
+                    isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+                  }`}
+                  style={{ transitionDelay: `${0.1 + index * 0.05}s` }}
+                  onClick={() => navigate(`/product/${product.id}`)}
                 >
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover transition-transform duration-350 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"
-                  />
-                  {/* Hover Overlay */}
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedProduct(product);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-pill text-sm font-medium transition-transform duration-200 hover:scale-105"
-                      style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
-                    >
-                      <Eye className="w-4 h-4" />
-                      Quick View
-                    </button>
-                    <button
-                      onClick={(e) => toggleWishlist(product.id, e)}
-                      className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110"
-                      style={{
-                        backgroundColor: wishlist.has(product.id) ? 'var(--color-danger)' : 'var(--color-bg)',
-                        color: wishlist.has(product.id) ? '#fff' : 'var(--color-text)',
-                      }}
-                    >
-                      <Heart className={`w-4 h-4 ${wishlist.has(product.id) ? 'fill-current' : ''}`} />
-                    </button>
-                  </div>
-                  {/* Stock badge */}
-                  {product.stock <= 5 && (
-                    <div className="absolute top-2 left-2 px-2 py-1 rounded-sm text-[10px] font-medium bg-red-500 text-white">
-                      Only {product.stock} left
+                  <div
+                    className="relative overflow-hidden rounded-2xl mb-3 shadow-sm border"
+                    style={{ aspectRatio: '3/4', borderColor: 'var(--color-border)' }}
+                  >
+                    <img
+                      src={product.image}
+                      alt={product.title}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+
+                    {/* Hover Overlay */}
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 px-3">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedProduct(product);
+                        }}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-transform hover:scale-105 shadow-md"
+                        style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Quick View
+                      </button>
+                      <button
+                        onClick={(e) => toggleWishlist(product.id, e)}
+                        className="w-9 h-9 rounded-full flex items-center justify-center transition-transform hover:scale-110 shadow-md"
+                        style={{
+                          backgroundColor: isWishlisted ? '#ef4444' : 'var(--color-bg)',
+                          color: isWishlisted ? '#fff' : 'var(--color-text)',
+                        }}
+                      >
+                        <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} />
+                      </button>
                     </div>
-                  )}
-                </div>
-                <h3 className="font-body font-medium text-[15px] truncate" style={{ color: 'var(--color-text)' }}>
-                  {product.name}
-                </h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="font-body font-semibold text-base" style={{ color: 'var(--color-accent)' }}>
-                    {formatPrice(product.price)}
-                  </span>
-                  {product.compareAtPrice && (
-                    <span className="font-body text-sm line-through" style={{ color: 'var(--color-muted)' }}>
-                      {formatPrice(product.compareAtPrice)}
+
+                    {/* Badge */}
+                    <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-black/60 text-white backdrop-blur-sm">
+                      {product.fabric || 'Pure Silk'}
+                    </div>
+                  </div>
+
+                  <h3 className="font-body font-semibold text-sm truncate" style={{ color: 'var(--color-text)' }}>
+                    {product.title}
+                  </h3>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="font-body font-bold text-sm md:text-base" style={{ color: 'var(--color-accent)' }}>
+                      {formatPrice(product.price)}
                     </span>
-                  )}
+                    <span className="font-mono text-[11px] text-slate-400">
+                      {product.sku}
+                    </span>
+                  </div>
                 </div>
-                <span className="font-body text-xs mt-1 block" style={{ color: 'var(--color-muted)' }}>
-                  {product.category}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Load More */}
-          {visibleCount < products.length && (
+          {visibleCount < filteredProducts.length && (
             <div className="text-center mt-12">
               <button
-                onClick={() => setVisibleCount((prev) => prev + 4)}
-                className="font-body font-medium text-sm px-8 py-3 rounded-pill border transition-all duration-300 hover:scale-105"
+                onClick={() => setVisibleCount((prev) => prev + 8)}
+                className="font-body font-semibold text-xs tracking-wider uppercase px-8 py-3.5 rounded-full border transition-all hover:scale-105 shadow-sm"
                 style={{
                   borderColor: 'var(--color-accent)',
                   color: 'var(--color-accent)',
                   backgroundColor: 'transparent',
                 }}
               >
-                Load More
+                Load More Sarees ({filteredProducts.length - visibleCount} Remaining)
               </button>
             </div>
           )}
         </>
       )}
 
-      {/* Quick View Modal */}
+      {/* Quick View Dialog */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="max-w-2xl p-0 overflow-hidden" style={{ backgroundColor: 'var(--color-bg)' }}>
+        <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-3xl" style={{ backgroundColor: 'var(--color-bg)' }}>
           {selectedProduct && (
             <div className="grid md:grid-cols-2 gap-0">
               <div className="aspect-[3/4] md:aspect-auto">
                 <img
                   src={selectedProduct.image}
-                  alt={selectedProduct.name}
+                  alt={selectedProduct.title}
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div className="p-6 md:p-8 flex flex-col justify-center">
-                <button
-                  onClick={() => setSelectedProduct(null)}
-                  className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-                  style={{ backgroundColor: 'var(--color-bg-alt)' }}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                <span className="font-body text-xs tracking-wider uppercase mb-2" style={{ color: 'var(--color-accent)' }}>
-                  {selectedProduct.category}
-                </span>
-                <h3 className="font-display font-semibold text-2xl mb-2" style={{ color: 'var(--color-text)' }}>
-                  {selectedProduct.name}
-                </h3>
-                <p className="font-body text-sm mb-4 leading-relaxed" style={{ color: 'var(--color-muted)' }}>
-                  {selectedProduct.description}
-                </p>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="font-body font-bold text-xl" style={{ color: 'var(--color-accent)' }}>
-                    {formatPrice(selectedProduct.price)}
-                  </span>
-                  {selectedProduct.compareAtPrice && (
-                    <span className="font-body text-sm line-through" style={{ color: 'var(--color-muted)' }}>
-                      {formatPrice(selectedProduct.compareAtPrice)}
+              <div className="p-6 md:p-8 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-body text-[11px] tracking-wider uppercase font-bold" style={{ color: 'var(--color-accent)' }}>
+                      {selectedProduct.fabric || 'Pure Silk'} • {selectedProduct.weave || 'Banarasi'}
                     </span>
-                  )}
-                </div>
-                <div className="space-y-2 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span style={{ color: 'var(--color-muted)' }}>Material</span>
-                    <span className="font-medium">{selectedProduct.material}</span>
+                    <button
+                      onClick={() => setSelectedProduct(null)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center bg-black/5 hover:bg-black/10 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                  {!hasRemoteProducts && (
-                    <>
-                      <div className="flex justify-between text-sm">
-                        <span style={{ color: 'var(--color-muted)' }}>Stock</span>
-                        <span className="font-medium">{selectedProduct.stock} available</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span style={{ color: 'var(--color-muted)' }}>SKU</span>
-                        <span className="font-medium">{selectedProduct.sku}</span>
-                      </div>
-                    </>
-                  )}
+
+                  <h3 className="font-display font-bold text-xl md:text-2xl mb-2 leading-snug" style={{ color: 'var(--color-text)' }}>
+                    {selectedProduct.title}
+                  </h3>
+                  <p className="font-body text-xs leading-relaxed mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+                    {selectedProduct.description}
+                  </p>
+
+                  <div className="flex items-center gap-3 mb-6">
+                    <span className="font-body font-bold text-2xl" style={{ color: 'var(--color-accent)' }}>
+                      {formatPrice(selectedProduct.price)}
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">
+                      SKU: {selectedProduct.sku}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 py-3 border-y text-xs mb-6" style={{ borderColor: 'var(--color-border)' }}>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Fabric</span>
+                      <span className="font-semibold">{selectedProduct.fabric || 'Silk'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Weave Type</span>
+                      <span className="font-semibold">{selectedProduct.weave || 'Powerloom'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Origin</span>
+                      <span className="font-semibold">Varanasi, India</span>
+                    </div>
+                  </div>
                 </div>
-                <button
-                  className="w-full py-3 rounded-pill font-medium text-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md"
-                  style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
-                  onClick={() => alert('Inquiry sent! We will contact you soon.')}
-                >
-                  Inquire Now
-                </button>
+
+                {/* Quick Inquiry Form */}
+                <form onSubmit={handleQuickInquiry} className="space-y-3">
+                  <input
+                    type="text"
+                    required
+                    value={inquiryName}
+                    onChange={(e) => setInquiryName(e.target.value)}
+                    placeholder="Enter your name to inquire"
+                    className="w-full px-4 py-2.5 rounded-xl text-xs font-body border outline-none focus:border-amber-600"
+                    style={{ backgroundColor: 'var(--color-bg-alt)', borderColor: 'var(--color-border)' }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={submittingInquiry}
+                    className="w-full py-3 rounded-full font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+                    style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
+                  >
+                    {submittingInquiry ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <MessageCircle className="w-4 h-4 fill-current" />
+                    )}
+                    <span>Inquire / Order on WhatsApp</span>
+                  </button>
+                </form>
               </div>
             </div>
           )}

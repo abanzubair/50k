@@ -1,102 +1,148 @@
-import { useState, useEffect } from 'react';
-import { STOREFRONT_CONFIG } from '@/lib/config';
-import type { StorefrontData, StorefrontProduct, StorefrontApiResponse } from '@/types/storefront';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+import type { StorefrontData, StorefrontProduct } from '@/types/storefront';
 
 interface UseStorefrontReturn {
   storefront: StorefrontData | null;
   products: StorefrontProduct[];
   loading: boolean;
   error: string | null;
+  refetch: () => Promise<void>;
 }
 
 /**
- * Resolves the reseller slug from the URL (query param, path segment, hostname, or fallback).
- * Mirrors the exact slug resolution logic from the 30K white-label site.
+ * Resolves the boutique identifier/slug from the URL:
+ * 1. Query param (?store=... or ?slug=...)
+ * 2. First path segment (/storefront or /50k)
+ * 3. Custom domain match
+ * 4. Fallback: '50k'
  */
-function resolveQuery(): string {
+function resolveCurrentSlug(): { slug?: string; domain?: string } {
+  if (typeof window === 'undefined') return { slug: '50k' };
+
   const urlParams = new URLSearchParams(window.location.search);
-  let slug = urlParams.get('store');
+  const querySlug = urlParams.get('store') || urlParams.get('slug');
+  if (querySlug) {
+    return { slug: querySlug.toLowerCase().trim() };
+  }
 
-  // Resolve via subfolder path segment if present (e.g., /boutique-name/...)
-  if (!slug) {
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    if (parts.length > 0) {
-      const possibleSlug = parts[0];
-      // Exclude common static resource folder names or HTML filenames
-      if (!possibleSlug.endsWith('.html') && possibleSlug !== 'assets' && possibleSlug !== 'views') {
-        slug = possibleSlug;
-      }
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts.length > 0) {
+    const candidate = parts[0].toLowerCase().trim();
+    // Ignore internal app routes and asset paths
+    if (!['admin', 'product', 'products', 'assets', 'images', 'api'].includes(candidate)) {
+      return { slug: candidate };
     }
   }
 
-  if (slug) {
-    return `slug=${encodeURIComponent(slug)}`;
-  } else if (STOREFRONT_CONFIG.RESELLER_SLUG) {
-    return `slug=${encodeURIComponent(STOREFRONT_CONFIG.RESELLER_SLUG)}`;
-  } else {
-    const hostname = window.location.hostname;
-    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `domain=${encodeURIComponent(hostname)}`;
-    }
+  const hostname = window.location.hostname;
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    return { domain: hostname };
   }
 
-  return '';
+  return { slug: '50k' };
 }
 
-/**
- * Custom hook that fetches storefront branding and product catalog
- * from the main Weave365 website API (/api/storefront).
- *
- * Returns { storefront, products, loading, error }.
- */
 export function useStorefront(): UseStorefrontReturn {
   const [storefront, setStorefront] = useState<StorefrontData | null>(null);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    async function loadStorefrontData() {
-      try {
-        const query = resolveQuery();
-        if (!query) {
-          setLoading(false);
-          return;
-        }
+      const target = resolveCurrentSlug();
+      let tenantQuery = supabase.from('boutique_tenants').select('*');
 
-        const baseUrl = STOREFRONT_CONFIG.MAIN_WEBSITE_URL.replace(/\/+$/, '');
-        const apiUrl = `${baseUrl}/api/storefront?${query}`;
-
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data: StorefrontApiResponse = await response.json();
-
-        if (!cancelled) {
-          if (data && data.storefront) {
-            setStorefront(data.storefront);
-            setProducts(data.products || []);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load storefront data:', err);
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load storefront');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      if (target.slug) {
+        tenantQuery = tenantQuery.eq('slug', target.slug);
+      } else if (target.domain) {
+        tenantQuery = tenantQuery.eq('custom_domain', target.domain);
       }
-    }
 
-    loadStorefrontData();
-    return () => { cancelled = true; };
+      let { data: tenant } = await tenantQuery.maybeSingle();
+
+      // If specific slug not found, fall back to '50k' or first available tenant
+      if (!tenant) {
+        const { data: fallbackTenant } = await supabase
+          .from('boutique_tenants')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        tenant = fallbackTenant;
+      }
+
+      if (!tenant) {
+        setStorefront({
+          slug: '50k',
+          store_name: '50K Heritage',
+          tagline: 'Handcrafted Authentic Pure Silk Banarasi Sarees',
+          whatsapp: '919919101369',
+        });
+        setProducts([]);
+        return;
+      }
+
+      setStorefront(tenant);
+
+      // Fetch products for this tenant
+      const { data: prods, error: prodErr } = await supabase
+        .from('boutique_products')
+        .select('*')
+        .eq('tenant_id', tenant.id)
+        .eq('is_published', true)
+        .order('created_at', { ascending: false });
+
+      if (prodErr) throw prodErr;
+
+      const formattedProds: StorefrontProduct[] = (prods || []).map((p) => {
+        const price = Number(p.retail_price || p.base_price || 0);
+        const imagesList = Array.isArray(p.images) && p.images.length > 0 ? p.images : [];
+        const primaryImage = imagesList[0] || '/images/hero-saree.jpg';
+
+        return {
+          id: p.id,
+          tenant_id: p.tenant_id,
+          original_product_id: p.original_product_id,
+          sku: p.sku || `WV-${p.id}`,
+          title: p.title,
+          description: p.description || 'Exquisite handcrafted Banarasi masterpiece woven with delicate zari work and luxurious texture.',
+          price,
+          base_price: Number(p.base_price || 0),
+          retail_price: price,
+          formattedPrice: `₹${price.toLocaleString('en-IN')}`,
+          image: primaryImage,
+          images: imagesList.length > 0 ? imagesList : [primaryImage],
+          category: p.category || 'Saree',
+          fabric: p.fabric || 'Soft Silk',
+          weave: p.weave || 'Powerloom',
+          origin: 'Varanasi, India',
+          weaveTime: '15-20 Days',
+          zariType: 'Zari Work',
+          work: p.work || 'Intricate Floral & Zari Weave',
+          is_published: p.is_published !== false,
+          stock: 10,
+          created_at: p.created_at,
+        };
+      });
+
+      setProducts(formattedProds);
+    } catch (err: any) {
+      console.error('[useStorefront] Error loading data:', err);
+      setError(err?.message || 'Failed to load boutique');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  return { storefront, products, loading, error };
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  return { storefront, products, loading, error, refetch: loadData };
 }

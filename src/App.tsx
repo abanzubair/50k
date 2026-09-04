@@ -6,7 +6,6 @@ import AdminLogin from './pages/admin/Login';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminProducts from './pages/admin/Products';
 import AdminOrders from './pages/admin/Orders';
-import AdminCategories from './pages/admin/Categories';
 import AdminProfile from './pages/admin/Profile';
 
 export default function App() {
@@ -14,12 +13,18 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/product/:id" element={<ProductDetails />} />
+      
+      {/* Dynamic Subpath Multi-Tenant Support */}
+      <Route path="/:slug" element={<Home />} />
+      <Route path="/:slug/product/:id" element={<ProductDetails />} />
+
+      {/* Admin Panel */}
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="products" element={<AdminProducts />} />
         <Route path="orders" element={<AdminOrders />} />
-        <Route path="categories" element={<AdminCategories />} />
         <Route path="profile" element={<AdminProfile />} />
+        <Route path="settings" element={<AdminProfile />} />
       </Route>
       <Route path="/admin/login" element={<AdminLogin />} />
     </Routes>

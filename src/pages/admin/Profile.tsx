@@ -1,238 +1,218 @@
-import { useState } from 'react';
-import { Eye, EyeOff, Check } from 'lucide-react';
-import { adminStore } from '@/lib/store';
+import { useState, useEffect } from 'react';
+import { Save, Check, Loader2, Store, Phone, Globe, Image}  from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { useAdminTenant } from '@/lib/AdminTenantContext';
 
 export default function AdminProfile() {
-  const [user, setUser] = useState(adminStore.getUser());
-  const [showPassword, setShowPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    current: '',
-    new: '',
-    confirm: '',
-  });
+  const { tenant, refreshTenant } = useAdminTenant();
+  const [storeName, setStoreName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [heroBannerUrl, setHeroBannerUrl] = useState('');
+  const [customDomain, setCustomDomain] = useState('');
+
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    adminStore.updateUser({
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      bio: user.bio,
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
+  useEffect(() => {
+    if (tenant) {
+      setStoreName(tenant.store_name || '');
+      setWhatsapp(tenant.whatsapp || '');
+      setTagline(tenant.tagline || '');
+      setLogoUrl(tenant.logo_url || '');
+      setHeroBannerUrl(tenant.hero_banner_url || '');
+      setCustomDomain(tenant.custom_domain || '');
+    }
+  }, [tenant]);
 
-  const handleSavePassword = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordForm.new !== passwordForm.confirm) {
-      alert('New passwords do not match');
-      return;
+    if (!tenant?.id) return;
+
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    try {
+      const { error: updateErr } = await supabase
+        .from('boutique_tenants')
+        .update({
+          store_name: storeName.trim(),
+          whatsapp: whatsapp.trim(),
+          tagline: tagline.trim(),
+          logo_url: logoUrl.trim() || null,
+          hero_banner_url: heroBannerUrl.trim() || null,
+          custom_domain: customDomain.trim() || null,
+        })
+        .eq('id', tenant.id);
+
+      if (updateErr) throw updateErr;
+
+      await refreshTenant();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save boutique settings');
+    } finally {
+      setSaving(false);
     }
-    if (passwordForm.current !== 'admin123') {
-      alert('Current password is incorrect');
-      return;
-    }
-    setPasswordSaved(true);
-    setPasswordForm({ current: '', new: '', confirm: '' });
-    setTimeout(() => setPasswordSaved(false), 3000);
   };
 
   return (
-    <div className="max-w-xl mx-auto">
-      <div className="mb-8">
-        <h1 className="font-display font-semibold text-h2" style={{ color: 'var(--color-text)' }}>
-          Admin Profile
-        </h1>
-        <p className="font-body text-sm mt-1" style={{ color: 'var(--color-muted)' }}>
-          Manage your account settings
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="font-display font-bold text-2xl text-white">Boutique Branding & Settings</h1>
+        <p className="text-xs text-slate-400 mt-1">
+          Configure your boutique's public identity, WhatsApp order destination, and domain
         </p>
       </div>
 
-      <div
-        className="rounded-xl p-6 md:p-8"
-        style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-sm)' }}
-      >
-        {/* Avatar Section */}
-        <div className="text-center mb-8">
-          <div
-            className="w-24 h-24 rounded-full mx-auto flex items-center justify-center font-body font-semibold text-2xl mb-3"
-            style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
-          >
-            {user.name.split(' ').map((n) => n[0]).join('')}
-          </div>
-          <button
-            onClick={() => alert('Photo upload coming soon!')}
-            className="font-body text-sm font-medium hover:underline"
-            style={{ color: 'var(--color-accent)' }}
-          >
-            Change Photo
-          </button>
-          <h3 className="font-body font-semibold text-xl mt-3">{user.name}</h3>
-          <span
-            className="inline-block mt-1 px-3 py-1 rounded-pill font-body text-[11px] font-medium"
-            style={{ backgroundColor: 'rgba(196,154,132,0.2)', color: 'var(--color-accent)' }}
-          >
-            {user.role}
-          </span>
+      {saved && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-xs font-semibold flex items-center gap-2">
+          <Check className="w-4 h-4" />
+          <span>Boutique settings saved and published successfully!</span>
         </div>
+      )}
 
-        {/* Profile Form */}
-        <form onSubmit={handleSaveProfile} className="space-y-4">
+      {error && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-xs font-medium">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSave} className="space-y-6">
+        {/* Core Identity */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-800 text-slate-300 font-bold text-xs uppercase tracking-wider">
+            <Store className="w-4 h-4 text-amber-500" />
+            <span>Store Identity & WhatsApp</span>
+          </div>
+
           <div>
-            <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-              Full Name
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Boutique Store Name *
             </label>
             <input
               type="text"
-              value={user.name}
-              onChange={(e) => setUser({ ...user, name: e.target.value })}
-              className="w-full h-10 px-4 rounded-lg text-sm font-body outline-none transition-shadow focus:shadow-glow"
-              style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+              required
+              value={storeName}
+              onChange={(e) => setStoreName(e.target.value)}
+              placeholder="e.g. 50K Heritage Sarees"
+              className="w-full h-11 px-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500"
             />
           </div>
+
           <div>
-            <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-              Email
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              WhatsApp Order Phone Number *
+            </label>
+            <div className="relative">
+              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input
+                type="text"
+                required
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                placeholder="e.g. 919919101369"
+                className="w-full h-11 pl-10 pr-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500 font-mono"
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Include country code without '+' (e.g. 91 for India). Customer inquiries will be routed to this number.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Tagline / Headline
             </label>
             <input
-              type="email"
-              value={user.email}
-              onChange={(e) => setUser({ ...user, email: e.target.value })}
-              className="w-full h-10 px-4 rounded-lg text-sm font-body outline-none transition-shadow focus:shadow-glow"
-              style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+              type="text"
+              value={tagline}
+              onChange={(e) => setTagline(e.target.value)}
+              placeholder="Handcrafted Pure Silk Banarasi Sarees & Couture"
+              className="w-full h-11 px-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500"
             />
           </div>
+        </div>
+
+        {/* Media & Artwork */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-800 text-slate-300 font-bold text-xs uppercase tracking-wider">
+            <Image className="w-4 h-4 text-amber-500" />
+            <span>Media & Branding</span>
+          </div>
+
           <div>
-            <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-              Phone
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Logo Image URL (Optional)
             </label>
             <input
-              type="tel"
-              value={user.phone}
-              onChange={(e) => setUser({ ...user, phone: e.target.value })}
-              className="w-full h-10 px-4 rounded-lg text-sm font-body outline-none transition-shadow focus:shadow-glow"
-              style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+              type="url"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://yourdomain.com/logo.png"
+              className="w-full h-11 px-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500"
             />
           </div>
+
           <div>
-            <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-              Bio
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Hero Banner Image URL (Optional)
             </label>
-            <textarea
-              rows={3}
-              value={user.bio}
-              onChange={(e) => setUser({ ...user, bio: e.target.value })}
-              className="w-full px-4 py-3 rounded-lg text-sm font-body outline-none resize-none transition-shadow focus:shadow-glow"
-              style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+            <input
+              type="url"
+              value={heroBannerUrl}
+              onChange={(e) => setHeroBannerUrl(e.target.value)}
+              placeholder="https://assets.weave365.com/banner.jpg"
+              className="w-full h-11 px-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500"
             />
           </div>
+        </div>
+
+        {/* Custom Domain */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-800 text-slate-300 font-bold text-xs uppercase tracking-wider">
+            <Globe className="w-4 h-4 text-amber-500" />
+            <span>Custom Domain (Optional)</span>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Custom Domain Name
+            </label>
+            <input
+              type="text"
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value)}
+              placeholder="e.g. www.myboutique.com"
+              className="w-full h-11 px-4 rounded-xl text-xs bg-slate-950 border border-slate-800 text-white outline-none focus:border-amber-500 font-mono"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Point a CNAME record to your deployed template URL to serve this boutique under your own custom domain.
+            </p>
+          </div>
+        </div>
+
+        {/* Save CTA */}
+        <div className="flex justify-end">
           <button
             type="submit"
-            className="w-full h-11 rounded-pill font-body font-medium text-sm transition-all hover:scale-[1.02] hover:shadow-md"
-            style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
+            disabled={saving}
+            className="px-8 py-3.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl transition-all"
           >
-            {saved ? (
-              <span className="flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" />
-                Profile Updated
-              </span>
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              'Save Changes'
+              <Save className="w-4 h-4" />
             )}
+            <span>Save Changes</span>
           </button>
-        </form>
-
-        {/* Password Section */}
-        <div className="mt-8 pt-6" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <h4 className="font-body font-semibold text-base mb-4" style={{ color: 'var(--color-text)' }}>
-            Change Password
-          </h4>
-          <form onSubmit={handleSavePassword} className="space-y-4">
-            <div className="relative">
-              <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-                Current Password
-              </label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={passwordForm.current}
-                onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
-                placeholder="Enter current password"
-                className="w-full h-10 px-4 pr-10 rounded-lg text-sm font-body outline-none"
-                style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-[34px]"
-                style={{ color: 'var(--color-muted)' }}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <div className="relative">
-              <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-                New Password
-              </label>
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                value={passwordForm.new}
-                onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
-                placeholder="Enter new password"
-                className="w-full h-10 px-4 pr-10 rounded-lg text-sm font-body outline-none"
-                style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-[34px]"
-                style={{ color: 'var(--color-muted)' }}
-              >
-                {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <div className="relative">
-              <label className="block font-body text-sm font-medium mb-1.5" style={{ color: 'var(--color-text)' }}>
-                Confirm New Password
-              </label>
-              <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={passwordForm.confirm}
-                onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
-                placeholder="Confirm new password"
-                className="w-full h-10 px-4 pr-10 rounded-lg text-sm font-body outline-none"
-                style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-[34px]"
-                style={{ color: 'var(--color-muted)' }}
-              >
-                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <button
-              type="submit"
-              className="w-full h-11 rounded-pill font-body font-medium text-sm transition-all hover:scale-[1.02] hover:shadow-md"
-              style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
-            >
-              {passwordSaved ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Check className="w-4 h-4" />
-                  Password Updated
-                </span>
-              ) : (
-                'Update Password'
-              )}
-            </button>
-          </form>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

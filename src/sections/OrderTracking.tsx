@@ -1,19 +1,33 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, Check } from 'lucide-react';
-import { orderStore } from '@/lib/store';
-import type { Order, OrderStatus } from '@/types';
+import { Search, Check, Loader2, PackageCheck } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { useStorefrontContext } from '@/lib/StorefrontContext';
 
-const statusConfig: Record<OrderStatus, { color: string; label: string }> = {
-  pending: { color: '#C49A5B', label: 'Pending' },
-  confirmed: { color: '#5B7FB8', label: 'Confirmed' },
-  shipped: { color: '#8B5BB8', label: 'Shipped' },
-  delivered: { color: '#5B8A5B', label: 'Delivered' },
-  cancelled: { color: '#B85C5C', label: 'Cancelled' },
+interface LiveOrder {
+  id: string;
+  orderId: string;
+  customerName: string;
+  customerPhone?: string;
+  totalAmount: number;
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  createdAt: string;
+  notes?: string;
+}
+
+const statusConfig: Record<string, { color: string; label: string; step: number }> = {
+  new: { color: '#C49A5B', label: 'Inquiry Received', step: 1 },
+  pending: { color: '#C49A5B', label: 'Order Processing', step: 1 },
+  confirmed: { color: '#5B7FB8', label: 'Order Confirmed', step: 2 },
+  shipped: { color: '#8B5BB8', label: 'Dispatched / In Transit', step: 3 },
+  delivered: { color: '#5B8A5B', label: 'Delivered', step: 4 },
+  cancelled: { color: '#B85C5C', label: 'Cancelled', step: 0 },
 };
 
 export default function OrderTracking() {
-  const [orderId, setOrderId] = useState('');
-  const [order, setOrder] = useState<Order | null>(null);
+  const { storefront, storeName } = useStorefrontContext();
+  const [query, setQuery] = useState('');
+  const [order, setOrder] = useState<LiveOrder | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isVisible, setIsVisible] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
@@ -32,45 +46,90 @@ export default function OrderTracking() {
     return () => observer.disconnect();
   }, []);
 
-  const handleTrack = () => {
-    setError('');
-    setOrder(null);
-    if (!orderId.trim()) {
-      setError('Please enter an order ID');
+  const handleTrack = async () => {
+    const clean = query.trim();
+    if (!clean) {
+      setError('Please enter your Order ID or phone number');
       return;
     }
-    const found = orderStore.getByOrderId(orderId.trim());
-    if (found) {
-      setOrder(found);
-    } else {
-      setError('Order not found. Please check the order ID and try again.');
+
+    setLoading(true);
+    setError('');
+    setOrder(null);
+
+    try {
+      let dbQuery = supabase.from('boutique_orders').select('*');
+      if (storefront?.id) {
+        dbQuery = dbQuery.eq('tenant_id', storefront.id);
+      }
+
+      // Check by order ID (UUID or short code) or phone number
+      dbQuery = dbQuery.or(`id.eq.${clean},customer_phone.ilike.%${clean}%`);
+
+      const { data, error: dbErr } = await dbQuery.order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+      if (dbErr) throw dbErr;
+
+      if (!data) {
+        setError('No order found matching this reference. Please verify or contact us on WhatsApp.');
+        return;
+      }
+
+      const statusKey = (data.status || 'pending').toLowerCase();
+
+      setOrder({
+        id: data.id,
+        orderId: `#ORD-${data.id.substring(0, 8).toUpperCase()}`,
+        customerName: data.customer_name || 'Valued Customer',
+        customerPhone: data.customer_phone,
+        totalAmount: Number(data.total_amount || 0),
+        status: statusKey in statusConfig ? statusKey as any : 'pending',
+        createdAt: new Date(data.created_at).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }),
+        notes: data.notes,
+      });
+    } catch (err: any) {
+      console.error('Error tracking order:', err);
+      setError('Unable to fetch order status. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
+
+  const steps = [
+    { key: 'pending', label: 'Order Placed' },
+    { key: 'confirmed', label: 'Weave Confirmed' },
+    { key: 'shipped', label: 'Shipped & Dispatched' },
+    { key: 'delivered', label: 'Delivered' },
+  ];
 
   return (
     <section
       ref={sectionRef}
       id="track-order"
-      className="w-full py-24 md:py-32 px-5 md:px-16"
+      className="w-full py-24 px-5 md:px-16"
       style={{ backgroundColor: 'var(--color-bg-alt)' }}
     >
       <div className="max-w-xl mx-auto text-center">
         {/* Header */}
         <h2
-          className={`font-display font-semibold text-h1 mb-4 transition-all duration-600 ${
-            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+          className={`font-display font-semibold text-3xl sm:text-4xl mb-3 transition-all duration-600 ${
+            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
           }`}
           style={{ color: 'var(--color-text)' }}
         >
-          Track Your <em style={{ color: 'var(--color-accent)' }}>Order</em>
+          Track Your <em className="italic font-normal" style={{ color: 'var(--color-accent)' }}>Order</em>
         </h2>
         <p
-          className={`font-body font-light text-base mb-10 transition-all duration-600 ${
-            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+          className={`font-body text-sm mb-10 transition-all duration-600 ${
+            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
           }`}
           style={{ color: 'var(--color-muted)', transitionDelay: '0.1s' }}
         >
-          Enter your order ID to check the status of your saree delivery
+          Check the real-time fulfillment status of your saree order from {storeName}
         </p>
 
         {/* Search Form */}
@@ -83,122 +142,98 @@ export default function OrderTracking() {
           <div className="relative flex items-center">
             <input
               type="text"
-              value={orderId}
-              onChange={(e) => setOrderId(e.target.value)}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
-              placeholder="Enter your order ID (e.g., TAV-2025-001)"
-              className="w-full h-[52px] pl-5 pr-[140px] rounded-pill text-[15px] font-body outline-none transition-all duration-200 focus:shadow-glow"
+              placeholder="Enter Order ID or WhatsApp Phone Number"
+              className="w-full h-14 pl-5 pr-32 rounded-full text-sm font-body border outline-none shadow-sm focus:border-amber-600 transition-all"
               style={{
-                border: `1px solid ${error ? 'var(--color-danger)' : 'var(--color-border)'}`,
+                borderColor: error ? '#ef4444' : 'var(--color-border)',
                 backgroundColor: 'var(--color-bg)',
                 color: 'var(--color-text)',
               }}
             />
             <button
               onClick={handleTrack}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-[44px] px-6 rounded-pill font-medium text-sm flex items-center gap-2 transition-all duration-200 hover:scale-105"
-              style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-bg)' }}
+              disabled={loading}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-11 px-6 rounded-full font-body font-bold text-xs tracking-wider uppercase text-white flex items-center gap-1.5 shadow-md transition-transform hover:scale-105"
+              style={{ backgroundColor: 'var(--color-accent)' }}
             >
-              <Search className="w-4 h-4" />
-              Track
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              <span>Track</span>
             </button>
           </div>
+
           {error && (
-            <p className="text-left mt-2 text-sm font-body" style={{ color: 'var(--color-danger)' }}>
+            <p className="text-left mt-2.5 px-4 text-xs font-medium text-rose-500">
               {error}
             </p>
           )}
         </div>
 
-        {/* Demo hint */}
-        <p className="text-xs font-body mb-8" style={{ color: 'var(--color-muted)' }}>
-          Try: <span className="font-medium cursor-pointer hover:underline" onClick={() => { setOrderId('TAV-2025-001'); setError(''); }}>TAV-2025-001</span> (Confirmed),{' '}
-          <span className="font-medium cursor-pointer hover:underline" onClick={() => { setOrderId('TAV-2025-002'); setError(''); }}>TAV-2025-002</span> (Shipped),{' '}
-          <span className="font-medium cursor-pointer hover:underline" onClick={() => { setOrderId('TAV-2025-003'); setError(''); }}>TAV-2025-003</span> (Delivered)
-        </p>
-
-        {/* Order Status */}
+        {/* Order Status Display */}
         {order && (
           <div
-            className="text-left rounded-xl p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500"
-            style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+            className="text-left rounded-3xl p-6 md:p-8 shadow-md border animate-in fade-in slide-in-from-bottom-4 duration-500"
+            style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
               <div>
-                <h3 className="font-body font-semibold text-lg" style={{ color: 'var(--color-text)' }}>
-                  {order.orderId}
-                </h3>
-                <p className="font-body text-sm" style={{ color: 'var(--color-muted)' }}>
-                  Placed on {order.createdAt}
+                <div className="flex items-center gap-2">
+                  <PackageCheck className="w-5 h-5 text-amber-600" />
+                  <h3 className="font-display font-bold text-base md:text-lg" style={{ color: 'var(--color-text)' }}>
+                    {order.orderId}
+                  </h3>
+                </div>
+                <p className="font-body text-xs text-slate-400 mt-0.5">
+                  Ordered by {order.customerName} on {order.createdAt}
                 </p>
               </div>
+
               <span
-                className="px-3 py-1 rounded-pill text-xs font-medium"
+                className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider"
                 style={{
-                  backgroundColor: `${statusConfig[order.status].color}20`,
-                  color: statusConfig[order.status].color,
+                  backgroundColor: `${statusConfig[order.status]?.color || '#C49A5B'}20`,
+                  color: statusConfig[order.status]?.color || '#C49A5B',
                 }}
               >
-                {statusConfig[order.status].label}
+                {statusConfig[order.status]?.label || order.status}
               </span>
             </div>
 
-            {/* Timeline */}
-            <div className="relative pl-4">
-              {order.timeline.map((event, index) => {
-                const isCurrent = event.status === order.status;
-                const isCompleted = event.completed;
-                const isLast = index === order.timeline.length - 1;
+            {/* Step Timeline */}
+            <div className="relative pl-4 space-y-6 my-4">
+              {steps.map((step, idx) => {
+                const currentStepNumber = statusConfig[order.status]?.step || 1;
+                const isComplete = idx + 1 <= currentStepNumber;
+                const isCurrent = idx + 1 === currentStepNumber;
+                const isLast = idx === steps.length - 1;
 
                 return (
-                  <div key={event.status} className="relative flex gap-4 pb-6 last:pb-0">
-                    {/* Line */}
+                  <div key={step.key} className="relative flex items-start gap-4">
                     {!isLast && (
                       <div
-                        className="absolute left-[7px] top-4 w-0.5 h-full"
+                        className="absolute left-[9px] top-5 w-0.5 h-10 transition-colors"
                         style={{
-                          backgroundColor: isCompleted ? 'var(--color-success)' : 'var(--color-border)',
-                          backgroundImage: !isCompleted ? 'repeating-linear-gradient(to bottom, var(--color-border) 0, var(--color-border) 4px, transparent 4px, transparent 8px)' : 'none',
+                          backgroundColor: isComplete && !isCurrent ? '#10b981' : 'var(--color-border)',
                         }}
                       />
                     )}
 
-                    {/* Dot */}
-                    <div className="relative z-10 flex-shrink-0">
-                      <div
-                        className="w-4 h-4 rounded-full flex items-center justify-center transition-all duration-300"
-                        style={{
-                          backgroundColor: isCompleted ? 'var(--color-success)' : 'transparent',
-                          border: `2px solid ${isCompleted ? 'var(--color-success)' : isCurrent ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                        }}
-                      >
-                        {isCompleted && <Check className="w-2.5 h-2.5 text-white" />}
-                      </div>
-                      {isCurrent && (
-                        <div
-                          className="absolute inset-0 rounded-full animate-pulse-ring"
-                          style={{ border: '2px solid var(--color-accent)' }}
-                        />
-                      )}
+                    <div
+                      className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 z-10 text-white transition-all ${
+                        isComplete ? 'bg-emerald-600 shadow-sm' : 'border-2 border-slate-300 bg-transparent'
+                      }`}
+                    >
+                      {isComplete && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
 
-                    {/* Content */}
-                    <div className="flex-1 -mt-0.5">
-                      <p
-                        className="font-body font-medium text-sm"
-                        style={{ color: isCompleted || isCurrent ? 'var(--color-text)' : 'var(--color-muted)' }}
-                      >
-                        {event.label}
+                    <div>
+                      <p className={`font-body text-xs font-bold ${isCurrent ? 'text-amber-700' : isComplete ? 'text-slate-900' : 'text-slate-400'}`}>
+                        {step.label}
                       </p>
-                      {event.date && (
-                        <p className="font-body text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>
-                          {event.date}
-                        </p>
-                      )}
-                      {isCurrent && !event.date && (
-                        <p className="font-body text-xs mt-0.5" style={{ color: 'var(--color-accent)' }}>
-                          In progress
-                        </p>
+                      {isCurrent && (
+                        <span className="text-[10px] text-amber-600 font-medium">Current Status</span>
                       )}
                     </div>
                   </div>
@@ -206,16 +241,13 @@ export default function OrderTracking() {
               })}
             </div>
 
-            {/* Order Summary */}
-            <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
-              <div className="flex justify-between items-center">
-                <span className="font-body text-sm" style={{ color: 'var(--color-muted)' }}>
-                  Total Amount
-                </span>
-                <span className="font-body font-bold text-lg" style={{ color: 'var(--color-accent)' }}>
-                  ₹{order.total.toLocaleString('en-IN')}
-                </span>
-              </div>
+            <div className="mt-6 pt-4 border-t flex justify-between items-center" style={{ borderColor: 'var(--color-border)' }}>
+              <span className="font-body text-xs text-slate-500">
+                Order Value
+              </span>
+              <span className="font-body font-bold text-base" style={{ color: 'var(--color-accent)' }}>
+                ₹{order.totalAmount.toLocaleString('en-IN')}
+              </span>
             </div>
           </div>
         )}

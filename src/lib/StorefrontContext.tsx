@@ -7,8 +7,8 @@ interface StorefrontContextValue {
   remoteProducts: StorefrontProduct[];
   loading: boolean;
   error: string | null;
-  /** Convenience getter: the resolved store name or fallback */
   storeName: string;
+  refetch: () => Promise<void>;
 }
 
 const StorefrontContext = createContext<StorefrontContextValue>({
@@ -17,16 +17,24 @@ const StorefrontContext = createContext<StorefrontContextValue>({
   loading: true,
   error: null,
   storeName: 'TAVISHI',
+  refetch: async () => {},
 });
 
 export function StorefrontProvider({ children }: { children: ReactNode }) {
-  const { storefront, products, loading, error } = useStorefront();
+  const { storefront, products, loading, error, refetch } = useStorefront();
 
   const storeName = storefront?.store_name || 'TAVISHI';
 
   return (
     <StorefrontContext.Provider
-      value={{ storefront, remoteProducts: products, loading, error, storeName }}
+      value={{ 
+        storefront, 
+        remoteProducts: products, 
+        loading, 
+        error, 
+        storeName,
+        refetch 
+      }}
     >
       {children}
     </StorefrontContext.Provider>

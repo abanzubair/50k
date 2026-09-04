@@ -1,317 +1,223 @@
-import { useMemo } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
-} from 'recharts';
-import { IndianRupee, ShoppingCart, Package, Users } from 'lucide-react';
-import { orderStore, productStore, activityStore } from '@/lib/store';
-import type { OrderStatus } from '@/types';
-
-const statusColors: Record<OrderStatus, string> = {
-  pending: '#C49A5B',
-  confirmed: '#5B7FB8',
-  shipped: '#8B5BB8',
-  delivered: '#5B8A5B',
-  cancelled: '#B85C5C',
-};
-
-const statusLabels: Record<OrderStatus, string> = {
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-};
+import { useState, useEffect, useMemo } from 'react';
+import { IndianRupee, ShoppingCart, Package, MessageCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
+import { Link } from 'react-router';
+import { supabase } from '@/lib/supabase';
+import { useAdminTenant } from '@/lib/AdminTenantContext';
 
 export default function AdminDashboard() {
-  const orders = orderStore.getAll();
-  const products = productStore.getAll();
-  const activities = activityStore.getAll();
+  const { tenant } = useAdminTenant();
+  const [products, setProducts] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadDashboard() {
+      if (!tenant?.id) return;
+      setLoading(true);
+      try {
+        const [prodRes, orderRes] = await Promise.all([
+          supabase.from('boutique_products').select('*').eq('tenant_id', tenant.id),
+          supabase.from('boutique_orders').select('*').eq('tenant_id', tenant.id).order('created_at', { ascending: false }),
+        ]);
+
+        if (prodRes.data) setProducts(prodRes.data);
+        if (orderRes.data) setOrders(orderRes.data);
+      } catch (err) {
+        console.error('Error loading dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, [tenant?.id]);
 
   const stats = useMemo(() => {
-    const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
+    const totalCatalog = products.length;
+    const publishedCount = products.filter((p) => p.is_published !== false).length;
     const totalOrders = orders.length;
-    const totalProducts = products.length;
-    const totalCustomers = new Set(orders.map((o) => o.customer.email)).size;
-    return { totalRevenue, totalOrders, totalProducts, totalCustomers };
-  }, [orders, products]);
+    const totalPipelineValue = orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+    const newInquiriesCount = orders.filter((o) => o.status === 'new' || o.status === 'pending').length;
 
-  const revenueData = useMemo(() => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    return months.map((month, i) => ({
-      month,
-      revenue: [185000, 210000, 195000, 230000, 245000, 180000][i],
-    }));
-  }, []);
+    return {
+      totalCatalog,
+      publishedCount,
+      totalOrders,
+      totalPipelineValue,
+      newInquiriesCount,
+    };
+  }, [products, orders]);
 
-  const orderStatusData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    orders.forEach((o) => {
-      counts[o.status] = (counts[o.status] || 0) + 1;
-    });
-    return Object.entries(counts).map(([status, value]) => ({
-      name: statusLabels[status as OrderStatus],
-      value,
-      color: statusColors[status as OrderStatus],
-    }));
-  }, [orders]);
+  const recentOrders = orders.slice(0, 5);
 
-  const recentOrders = useMemo(() => {
-    return [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
-  }, [orders]);
-
-  const statCards = [
-    { label: 'Total Revenue', value: `₹${(stats.totalRevenue / 100000).toFixed(2)}L`, change: '+12.5%', icon: IndianRupee, positive: true },
-    { label: 'Total Orders', value: stats.totalOrders.toString(), change: '+8.2%', icon: ShoppingCart, positive: true },
-    { label: 'Total Products', value: stats.totalProducts.toString(), change: '+3 new', icon: Package, positive: true },
-    { label: 'Total Customers', value: stats.totalCustomers.toString(), change: '+24', icon: Users, positive: true },
-  ];
-
-  const formatPrice = (price: number) => `₹${price.toLocaleString('en-IN')}`;
+  if (loading) {
+    return (
+      <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
+        <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+        <span className="text-xs font-mono">Loading metrics for {tenant?.store_name}...</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {statCards.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl p-6"
-            style={{
-              backgroundColor: 'var(--color-bg)',
-              border: '1px solid var(--color-border)',
-              boxShadow: 'var(--shadow-sm)',
-            }}
+    <div className="space-y-8">
+      {/* Welcome Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-amber-950/40 border border-slate-800 rounded-3xl p-6 md:p-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span className="text-[10px] uppercase font-bold tracking-widest text-amber-400">
+              Boutique Overview
+            </span>
+            <h1 className="font-display font-bold text-2xl md:text-3xl text-white mt-1">
+              Welcome back, {tenant?.store_name}
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 max-w-xl">
+              Manage your published Banarasi sarees, track customer WhatsApp inquiries, and customize your retail storefront settings.
+            </p>
+          </div>
+
+          <Link
+            to={tenant?.slug === '50k' ? '/' : `/${tenant?.slug}`}
+            target="_blank"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-lg self-start sm:self-auto transition-all"
           >
-            <div className="flex items-center justify-between mb-4">
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: 'rgba(168,127,107,0.1)' }}
-              >
-                <stat.icon className="w-5 h-5" style={{ color: 'var(--color-accent)' }} />
-              </div>
-              <span
-                className="font-body font-medium text-[11px] px-2 py-0.5 rounded-pill"
-                style={{
-                  backgroundColor: stat.positive ? 'rgba(91,138,91,0.1)' : 'rgba(184,92,92,0.1)',
-                  color: stat.positive ? 'var(--color-success)' : 'var(--color-danger)',
-                }}
-              >
-                {stat.change}
-              </span>
+            <span>Live Store</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      </div>
+
+      {/* Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catalog Sarees</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+              <Package className="w-4 h-4" />
             </div>
-            <p className="font-body font-bold text-2xl" style={{ color: 'var(--color-text)' }}>
-              {stat.value}
-            </p>
-            <p className="font-body text-[13px] mt-1" style={{ color: 'var(--color-muted)' }}>
-              {stat.label}
-            </p>
           </div>
-        ))}
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue Chart */}
-        <div
-          className="lg:col-span-2 rounded-xl p-6"
-          style={{
-            backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <h3 className="font-body font-semibold text-base mb-4" style={{ color: 'var(--color-text)' }}>
-            Revenue Overview
-          </h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={revenueData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--color-muted)' }} axisLine={{ stroke: 'var(--color-border)' }} />
-              <YAxis tick={{ fontSize: 12, fill: 'var(--color-muted)' }} axisLine={{ stroke: 'var(--color-border)' }} tickFormatter={(v) => `₹${v / 1000}k`} />
-              <Tooltip
-                formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Revenue']}
-                contentStyle={{
-                  backgroundColor: 'var(--color-bg)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="revenue"
-                stroke="var(--color-accent)"
-                strokeWidth={2}
-                dot={{ fill: 'var(--color-accent)', r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Order Status Doughnut */}
-        <div
-          className="rounded-xl p-6"
-          style={{
-            backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <h3 className="font-body font-semibold text-base mb-4" style={{ color: 'var(--color-text)' }}>
-            Order Status
-          </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={orderStatusData}
-                cx="50%"
-                cy="50%"
-                innerRadius={50}
-                outerRadius={80}
-                paddingAngle={4}
-                dataKey="value"
-              >
-                {orderStatusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--color-bg)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="text-center mt-2">
-            <p className="font-body font-bold text-xl" style={{ color: 'var(--color-text)' }}>
-              {orders.length}
-            </p>
-            <p className="font-body text-xs" style={{ color: 'var(--color-muted)' }}>
-              Total Orders
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-2 mt-3">
-            {orderStatusData.map((item) => (
-              <div key={item.name} className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                <span className="font-body text-[11px]" style={{ color: 'var(--color-muted)' }}>
-                  {item.name} ({item.value})
-                </span>
-              </div>
-            ))}
+          <div className="mt-3">
+            <span className="text-2xl font-bold text-white">{stats.totalCatalog}</span>
+            <span className="text-xs text-slate-400 ml-2 font-mono">({stats.publishedCount} Active)</span>
           </div>
         </div>
-      </div>
 
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent Orders Table */}
-        <div
-          className="lg:col-span-2 rounded-xl overflow-hidden"
-          style={{
-            backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <div className="p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <h3 className="font-body font-semibold text-base" style={{ color: 'var(--color-text)' }}>
-              Recent Orders
-            </h3>
-            <span className="font-body text-xs cursor-pointer hover:underline" style={{ color: 'var(--color-accent)' }}>
-              View All
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Inquiries</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+              <ShoppingCart className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="text-2xl font-bold text-white">{stats.totalOrders}</span>
+            <span className="text-xs text-emerald-400 ml-2 font-mono">{stats.newInquiriesCount} New</span>
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Inquiry Value</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <IndianRupee className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="text-2xl font-bold text-white">
+              ₹{stats.totalPipelineValue.toLocaleString('en-IN')}
             </span>
           </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Boutique Handle</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="text-sm font-bold text-amber-400 font-mono">/{tenant?.slug}</span>
+            <p className="text-[11px] text-slate-500 mt-0.5 truncate">{tenant?.whatsapp || 'No WhatsApp set'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Customer Inquiries Table */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-base font-bold text-white">Recent Customer Inquiries</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Leads submitted through your boutique storefront</p>
+          </div>
+          <Link
+            to="/admin/orders"
+            className="text-xs font-bold text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            View All ({orders.length}) →
+          </Link>
+        </div>
+
+        {recentOrders.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-xs">
+            No customer inquiries logged yet. Share your store link on WhatsApp to start generating sales!
+          </div>
+        ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full text-left text-xs">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <th className="text-left px-6 py-3 font-body font-medium text-xs" style={{ color: 'var(--color-muted)' }}>Order ID</th>
-                  <th className="text-left px-6 py-3 font-body font-medium text-xs" style={{ color: 'var(--color-muted)' }}>Customer</th>
-                  <th className="text-left px-6 py-3 font-body font-medium text-xs" style={{ color: 'var(--color-muted)' }}>Date</th>
-                  <th className="text-left px-6 py-3 font-body font-medium text-xs" style={{ color: 'var(--color-muted)' }}>Amount</th>
-                  <th className="text-left px-6 py-3 font-body font-medium text-xs" style={{ color: 'var(--color-muted)' }}>Status</th>
+                <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="pb-3">Customer</th>
+                  <th className="pb-3">Reference / Notes</th>
+                  <th className="pb-3">Value</th>
+                  <th className="pb-3">Status</th>
+                  <th className="pb-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody>
-                {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-black/[0.02] transition-colors" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td className="px-6 py-3 font-body text-sm font-medium" style={{ color: 'var(--color-accent)' }}>
-                      {order.orderId}
-                    </td>
-                    <td className="px-6 py-3 font-body text-sm">{order.customer.name}</td>
-                    <td className="px-6 py-3 font-body text-sm" style={{ color: 'var(--color-muted)' }}>
-                      {new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
-                    <td className="px-6 py-3 font-body text-sm font-medium">{formatPrice(order.total)}</td>
-                    <td className="px-6 py-3">
-                      <span
-                        className="font-body text-[11px] font-medium px-2.5 py-1 rounded-pill"
-                        style={{
-                          backgroundColor: `${statusColors[order.status]}20`,
-                          color: statusColors[order.status],
-                        }}
-                      >
-                        {statusLabels[order.status]}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-slate-800/60">
+                {recentOrders.map((ord) => {
+                  const cleanPhone = ord.customer_phone ? ord.customer_phone.replace(/[^0-9]/g, '') : '';
+                  const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}` : null;
+
+                  return (
+                    <tr key={ord.id} className="hover:bg-slate-800/30">
+                      <td className="py-3 font-semibold text-white">
+                        <div>{ord.customer_name || 'Guest Lead'}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{ord.customer_phone || 'No phone'}</div>
+                      </td>
+                      <td className="py-3 text-slate-400 max-w-xs truncate">
+                        {ord.notes || `Order #ORD-${ord.id.substring(0, 6)}`}
+                      </td>
+                      <td className="py-3 font-bold text-amber-400">
+                        ₹{Number(ord.total_amount || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="py-3">
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          {ord.status || 'new'}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right">
+                        {waUrl ? (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 font-bold text-[11px] transition-colors"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        ) : (
+                          <span className="text-slate-600 text-[11px]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div
-          className="rounded-xl p-6"
-          style={{
-            backgroundColor: 'var(--color-bg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <h3 className="font-body font-semibold text-base mb-4" style={{ color: 'var(--color-text)' }}>
-            Recent Activity
-          </h3>
-          <div className="space-y-0">
-            {activities.slice(0, 6).map((activity, index) => (
-              <div
-                key={activity.id}
-                className="py-3 flex items-start gap-3"
-                style={{
-                  borderBottom: index < activities.length - 1 ? '1px solid var(--color-border)' : 'none',
-                }}
-              >
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                  style={{
-                    backgroundColor: activity.type === 'order' ? 'rgba(168,127,107,0.1)' : 'rgba(91,138,91,0.1)',
-                  }}
-                >
-                  {activity.type === 'order' ? (
-                    <ShoppingCart className="w-3.5 h-3.5" style={{ color: 'var(--color-accent)' }} />
-                  ) : (
-                    <Package className="w-3.5 h-3.5" style={{ color: 'var(--color-success)' }} />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-body text-sm leading-snug" style={{ color: 'var(--color-text)' }}>
-                    {activity.text}
-                  </p>
-                  <p className="font-body text-[11px] mt-0.5" style={{ color: 'var(--color-muted)' }}>
-                    {new Date(activity.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
