@@ -20,8 +20,9 @@ export default function ProductDetails() {
 
   // Inquiry modal state
   const [isInquiryOpen, setIsInquiryOpen] = useState(false);
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(() => localStorage.getItem('weave365_buyer_name') || '');
+  const [customerPhone, setCustomerPhone] = useState(() => localStorage.getItem('weave365_buyer_phone') || '');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [submittingInquiry, setSubmittingInquiry] = useState(false);
 
   useEffect(() => {
@@ -117,7 +118,19 @@ export default function ProductDetails() {
 
   const handleInquirySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!product || !customerName.trim()) return;
+    const cleanBuyerPhone = customerPhone.replace(/[^0-9+]/g, '').trim();
+
+    if (!cleanBuyerPhone || cleanBuyerPhone.length < 8) {
+      setPhoneError('Please enter a valid WhatsApp number (min 8 digits)');
+      return;
+    }
+
+    if (!product || !customerName.trim()) {
+      return;
+    }
+
+    localStorage.setItem('weave365_buyer_name', customerName.trim());
+    localStorage.setItem('weave365_buyer_phone', cleanBuyerPhone);
 
     setSubmittingInquiry(true);
     try {
@@ -127,9 +140,9 @@ export default function ProductDetails() {
           await supabase.from('boutique_inquiries').insert({
             tenant_id: storefront.id,
             customer_name: customerName.trim(),
-            customer_phone: customerPhone.trim() || null,
+            customer_phone: cleanBuyerPhone,
             subject: 'Saree Inquiry',
-            message: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title})`,
+            message: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
             product_title: product.title,
             sku: product.sku,
             status: 'New Inquiry',
@@ -139,24 +152,22 @@ export default function ProductDetails() {
         await supabase.from('boutique_orders').insert({
           tenant_id: storefront.id,
           customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim() || null,
+          customer_phone: cleanBuyerPhone,
           total_amount: product.price,
           status: 'Inquiry on WhatsApp',
-          notes: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title})`,
+          notes: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
           items: [{ title: product.title, sku: product.sku, price: product.price }],
         });
       }
 
       // 2. Open WhatsApp with prefilled message
       const whatsapp = storefront?.whatsapp || '919919101369';
-      const cleanPhone = whatsapp.replace(/[^0-9]/g, '');
-      const summaryText = `Hi ${storeName}, I would like to order/inquire about this saree:\n\n*Product Details:*\nTitle: ${product.title}\nSKU: ${product.sku}\nPrice: ${formatPrice(product.price)}\nFabric: ${product.fabric || 'Pure Silk'}\nLink: ${window.location.href}\n\n*Customer Details:*\nName: ${customerName.trim()}\n${customerPhone.trim() ? `Phone: ${customerPhone.trim()}` : ''}`;
+      const cleanStorePhone = whatsapp.replace(/[^0-9]/g, '');
+      const summaryText = `Hi ${storeName}, I would like to order/inquire about this saree:\n\n*Product Details:*\nTitle: ${product.title}\nSKU: ${product.sku}\nPrice: ${formatPrice(product.price)}\nFabric: ${product.fabric || 'Pure Silk'}\nLink: ${window.location.href}\n\n*Buyer Contact Details:*\nName: ${customerName.trim()}\nWhatsApp: ${cleanBuyerPhone}`;
 
-      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(summaryText)}`, '_blank');
+      window.open(`https://wa.me/${cleanStorePhone}?text=${encodeURIComponent(summaryText)}`, '_blank');
 
       setIsInquiryOpen(false);
-      setCustomerName('');
-      setCustomerPhone('');
     } catch (err) {
       console.error('Error logging inquiry:', err);
     } finally {
@@ -410,16 +421,23 @@ export default function ProductDetails() {
 
             <div>
               <label className="block font-body text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                WhatsApp Phone Number (Optional)
+                WhatsApp Phone Number *
               </label>
               <input
                 type="tel"
+                required
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
+                onChange={(e) => {
+                  setCustomerPhone(e.target.value);
+                  if (phoneError) setPhoneError(null);
+                }}
                 placeholder="e.g. +91 98765 43210"
-                className="w-full h-11 px-4 rounded-xl text-xs font-body border outline-none focus:border-amber-600"
-                style={{ backgroundColor: 'var(--color-bg-alt)', borderColor: 'var(--color-border)' }}
+                className="w-full h-11 px-4 rounded-xl text-xs font-body border outline-none focus:border-amber-600 font-mono"
+                style={{ backgroundColor: 'var(--color-bg-alt)', borderColor: phoneError ? '#ef4444' : 'var(--color-border)' }}
               />
+              {phoneError && (
+                <p className="text-[11px] text-red-500 mt-1">{phoneError}</p>
+              )}
             </div>
 
             <button

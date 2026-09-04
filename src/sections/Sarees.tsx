@@ -17,7 +17,9 @@ export default function Sarees() {
   const sectionRef = useRef<HTMLElement>(null);
 
   // Quick inquiry state
-  const [inquiryName, setInquiryName] = useState('');
+  const [inquiryName, setInquiryName] = useState(() => localStorage.getItem('weave365_buyer_name') || '');
+  const [inquiryPhone, setInquiryPhone] = useState(() => localStorage.getItem('weave365_buyer_phone') || '');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [submittingInquiry, setSubmittingInquiry] = useState(false);
 
   useEffect(() => {
@@ -72,7 +74,17 @@ export default function Sarees() {
 
   const handleQuickInquiry = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanBuyerPhone = inquiryPhone.replace(/[^0-9+]/g, '').trim();
+
+    if (!cleanBuyerPhone || cleanBuyerPhone.length < 8) {
+      setPhoneError('Please enter a valid WhatsApp number (min 8 digits)');
+      return;
+    }
+
     if (!selectedProduct || !inquiryName.trim()) return;
+
+    localStorage.setItem('weave365_buyer_name', inquiryName.trim());
+    localStorage.setItem('weave365_buyer_phone', cleanBuyerPhone);
 
     setSubmittingInquiry(true);
     try {
@@ -82,8 +94,9 @@ export default function Sarees() {
           await supabase.from('boutique_inquiries').insert({
             tenant_id: storefront.id,
             customer_name: inquiryName.trim(),
+            customer_phone: cleanBuyerPhone,
             subject: 'Quick Inquiry',
-            message: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title})`,
+            message: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
             product_title: selectedProduct.title,
             sku: selectedProduct.sku,
             status: 'New Inquiry',
@@ -93,22 +106,21 @@ export default function Sarees() {
         await supabase.from('boutique_orders').insert({
           tenant_id: storefront.id,
           customer_name: inquiryName.trim(),
-          customer_phone: '',
+          customer_phone: cleanBuyerPhone,
           total_amount: selectedProduct.price,
           status: 'Inquiry on WhatsApp',
-          notes: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title})`,
+          notes: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title}) | Buyer WhatsApp: ${cleanBuyerPhone}`,
           items: [{ title: selectedProduct.title, sku: selectedProduct.sku, price: selectedProduct.price }],
         });
       }
 
       // 2. Open WhatsApp
       const whatsapp = storefront?.whatsapp || '919919101369';
-      const cleanPhone = whatsapp.replace(/[^0-9]/g, '');
-      const msg = `Hi ${storeName}, I would like to order/inquire about this saree:\n\n*${selectedProduct.title}*\nSKU: ${selectedProduct.sku}\nPrice: ${formatPrice(selectedProduct.price)}\n\nMy Name: ${inquiryName.trim()}`;
-      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      const cleanStorePhone = whatsapp.replace(/[^0-9]/g, '');
+      const msg = `Hi ${storeName}, I would like to order/inquire about this saree:\n\n*${selectedProduct.title}*\nSKU: ${selectedProduct.sku}\nPrice: ${formatPrice(selectedProduct.price)}\n\n*Buyer Contact Details:*\nName: ${inquiryName.trim()}\nWhatsApp: ${cleanBuyerPhone}`;
+      window.open(`https://wa.me/${cleanStorePhone}?text=${encodeURIComponent(msg)}`, '_blank');
       
       setSelectedProduct(null);
-      setInquiryName('');
     } catch (err) {
       console.error('Error submitting inquiry:', err);
     } finally {
@@ -350,10 +362,27 @@ export default function Sarees() {
                     required
                     value={inquiryName}
                     onChange={(e) => setInquiryName(e.target.value)}
-                    placeholder="Enter your name to inquire"
+                    placeholder="Your Full Name *"
                     className="w-full px-4 py-2.5 rounded-xl text-xs font-body border outline-none focus:border-amber-600"
                     style={{ backgroundColor: 'var(--color-bg-alt)', borderColor: 'var(--color-border)' }}
                   />
+                  <div>
+                    <input
+                      type="tel"
+                      required
+                      value={inquiryPhone}
+                      onChange={(e) => {
+                        setInquiryPhone(e.target.value);
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      placeholder="Your WhatsApp Number (+91...) *"
+                      className="w-full px-4 py-2.5 rounded-xl text-xs font-body border outline-none focus:border-amber-600 font-mono"
+                      style={{ backgroundColor: 'var(--color-bg-alt)', borderColor: phoneError ? '#ef4444' : 'var(--color-border)' }}
+                    />
+                    {phoneError && (
+                      <p className="text-[11px] text-red-500 mt-1">{phoneError}</p>
+                    )}
+                  </div>
                   <button
                     type="submit"
                     disabled={submittingInquiry}
