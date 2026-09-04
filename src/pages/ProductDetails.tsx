@@ -123,13 +123,27 @@ export default function ProductDetails() {
     try {
       // 1. Insert order/inquiry into boutique_orders on Secondary DB
       if (storefront?.id) {
+        try {
+          await supabase.from('boutique_inquiries').insert({
+            tenant_id: storefront.id,
+            customer_name: customerName.trim(),
+            customer_phone: customerPhone.trim() || null,
+            subject: 'Saree Inquiry',
+            message: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title})`,
+            product_title: product.title,
+            sku: product.sku,
+            status: 'New Inquiry',
+          });
+        } catch (_) {}
+
         await supabase.from('boutique_orders').insert({
           tenant_id: storefront.id,
           customer_name: customerName.trim(),
           customer_phone: customerPhone.trim() || null,
           total_amount: product.price,
-          status: 'new',
+          status: 'Inquiry on WhatsApp',
           notes: `WhatsApp Inquiry for SKU: ${product.sku} (${product.title})`,
+          items: [{ title: product.title, sku: product.sku, price: product.price }],
         });
       }
 

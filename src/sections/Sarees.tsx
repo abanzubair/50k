@@ -78,13 +78,26 @@ export default function Sarees() {
     try {
       // 1. Insert lead into boutique_orders on Secondary DB
       if (storefront?.id) {
+        try {
+          await supabase.from('boutique_inquiries').insert({
+            tenant_id: storefront.id,
+            customer_name: inquiryName.trim(),
+            subject: 'Quick Inquiry',
+            message: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title})`,
+            product_title: selectedProduct.title,
+            sku: selectedProduct.sku,
+            status: 'New Inquiry',
+          });
+        } catch (_) {}
+
         await supabase.from('boutique_orders').insert({
           tenant_id: storefront.id,
           customer_name: inquiryName.trim(),
           customer_phone: '',
           total_amount: selectedProduct.price,
-          status: 'new',
+          status: 'Inquiry on WhatsApp',
           notes: `Quick Inquiry for SKU: ${selectedProduct.sku} (${selectedProduct.title})`,
+          items: [{ title: selectedProduct.title, sku: selectedProduct.sku, price: selectedProduct.price }],
         });
       }
 
